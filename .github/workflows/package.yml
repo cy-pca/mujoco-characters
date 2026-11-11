@@ -104,9 +104,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Pack the windows bundle
+      - name: Tests (from the checkout)
         run: |
           cvcpkg --version
+          cvcpkg install python312 numpy-cp312 mujoco-core-cp312 mujoco-menagerie pillow-cp312 --prefix deps
+          PYTHONPATH=src deps/python.exe -m unittest discover -s tests -v
+
+      - name: Pack the windows bundle
+        run: |
           cvcpkg install python312 setuptools-cp312 --prefix build-deps
           cvcpkg pack mujoco-characters --local --recipes-dir recipes --no-default-recipes \
             --platform windows --prefix build-deps --output-dir dist
@@ -114,9 +119,8 @@ jobs:
 
       - name: Run the tool from the installed bundle
         run: |
-          # mujoco-core-cp312 is not published for Windows yet, so this checks the launcher and
-          # the commands that need only numpy; the noarch job runs the whole flow.
-          cvcpkg install python312 numpy-cp312 --prefix fresh
+          # The runtime closure from the catalog, then the bundle on top of it.
+          cvcpkg install python312 numpy-cp312 mujoco-core-cp312 mujoco-menagerie pillow-cp312 glfw-cp312 pyopengl-cp312 --prefix fresh
           for a in dist/mujoco-characters-*; do
             case "$a" in
               *.zip) unzip -q -o "$a" -d fresh ;;
@@ -125,9 +129,12 @@ jobs:
             esac
           done
           mkdir run && cd run
-          cmd //c "$(cygpath -w ../fresh/bin/mjchar.cmd)" --help
-          cmd //c "$(cygpath -w ../fresh/bin/mjchar.cmd)" testrig t.glb
-          cmd //c "$(cygpath -w ../fresh/bin/mjchar.cmd)" inspect t.glb | tail -4
+          M="$(cygpath -w ../fresh/bin/mjchar.cmd)"
+          cmd //c "$M" testrig t.glb --template meshyrig --pose A
+          cmd //c "$M" inspect t.glb | tail -4
+          cmd //c "$M" skin t.glb -o g1
+          cmd //c "$M" demo g1/unitree_g1_t.xml | tee stats.json
+          grep -q '"fell": false' stats.json
 
       - uses: actions/upload-artifact@v4
         with:

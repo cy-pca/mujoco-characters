@@ -30,10 +30,6 @@ viewer's GLFW and OpenGL bindings. Add `ffmpeg-cli` if you want
 cvcpkg install mujoco-characters ffmpeg-cli --prefix ./deps
 ```
 
-On Windows, MuJoCo's Python bindings (`mujoco-core-cp312`) are not published
-for Windows yet, so the install stops there until they are. Linux and macOS
-work now.
-
 Then (Linux and macOS shown; on Windows run `deps\bin\mjchar.cmd`):
 
 ```bash
