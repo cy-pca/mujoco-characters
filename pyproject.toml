@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mjchar"
+version = "0.1.0"
+description = "Rigged humanoid characters (Meshy.ai and other GLBs) as skins and bodies in MuJoCo"
+requires-python = ">=3.11"
+dependencies = ["mujoco>=4.0", "numpy"]
+
+[project.optional-dependencies]
+render = ["pillow"]
+
+[project.scripts]
+mjchar = "mjchar.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
