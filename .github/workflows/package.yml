@@ -1,0 +1,187 @@
+name: package
+
+# Runs the tests, packs the two cvcpkg bundles of recipes/mujoco-characters (noarch on Linux,
+# windows on Windows) and installs each bundle into a fresh prefix to run the tool from it.
+# Dispatched on main with `publish` checked, it then publishes both bundles to the cy-pca
+# organisation on cvcpkg.org and installs the published package to check it.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish both bundles to the cy-pca organisation on cvcpkg.org (main only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CVCPKG_SERVER_URL: https://cvcpkg.org
+  CVCPKG_RELEASE: cvcpkg-v2.5.13
+
+jobs:
+  noarch:
+    name: noarch bundle (Linux)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cvcpkg
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          cd "$HOME/.local/bin"
+          gh release download "$CVCPKG_RELEASE" --repo cy-pca/cvcpkg --pattern 'cvcpkg-linux-x86_64*'
+          sha256sum -c cvcpkg-linux-x86_64.sha256
+          mv cvcpkg-linux-x86_64 cvcpkg && chmod +x cvcpkg
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Tests (from the checkout)
+        run: |
+          cvcpkg --version
+          cvcpkg install python312 numpy-cp312 mujoco-core-cp312 mujoco-menagerie pillow-cp312 --prefix deps
+          PYTHONPATH=src deps/bin/python3.12 -m unittest discover -s tests -v
+
+      - name: Pack the noarch bundle
+        run: |
+          cvcpkg install python312 setuptools-cp312 --prefix build-deps
+          cvcpkg pack mujoco-characters --local --recipes-dir recipes --no-default-recipes \
+            --platform any --prefix build-deps --output-dir dist
+          ls -l dist
+
+      - name: Run the tool from the installed bundle
+        run: |
+          # The runtime closure from the catalog, then the bundle on top of it.
+          cvcpkg install python312 numpy-cp312 mujoco-core-cp312 mujoco-menagerie pillow-cp312 glfw-cp312 pyopengl-cp312 --prefix fresh
+          for a in dist/mujoco-characters-*; do
+            case "$a" in
+              *.zip) unzip -q -o "$a" -d fresh ;;
+              *.tar.zst) tar --zstd -xf "$a" -C fresh ;;
+              *) tar -xf "$a" -C fresh ;;
+            esac
+          done
+          mkdir run && cd run
+          ../fresh/bin/mjchar testrig t.glb --template meshyrig --pose A
+          ../fresh/bin/mjchar inspect t.glb | tail -4
+          ../fresh/bin/mjchar skin t.glb -o g1
+          ../fresh/bin/mjchar demo g1/unitree_g1_t.xml | tee stats.json
+          grep -q '"fell": false' stats.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-noarch
+          path: dist/mujoco-characters-*
+          if-no-files-found: error
+
+  windows:
+    name: windows bundle
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cvcpkg
+        run: |
+          mkdir -p "$HOME/cvcpkg-bin"
+          cd "$HOME/cvcpkg-bin"
+          gh release download "$CVCPKG_RELEASE" --repo cy-pca/cvcpkg --pattern 'cvcpkg-windows-x86_64.exe*'
+          sha256sum -c cvcpkg-windows-x86_64.exe.sha256
+          mv cvcpkg-windows-x86_64.exe cvcpkg.exe
+          cygpath -w "$HOME/cvcpkg-bin" >> "$GITHUB_PATH"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Pack the windows bundle
+        run: |
+          cvcpkg --version
+          cvcpkg install python312 setuptools-cp312 --prefix build-deps
+          cvcpkg pack mujoco-characters --local --recipes-dir recipes --no-default-recipes \
+            --platform windows --prefix build-deps --output-dir dist
+          ls -l dist
+
+      - name: Run the tool from the installed bundle
+        run: |
+          # mujoco-core-cp312 is not published for Windows yet, so this checks the launcher and
+          # the commands that need only numpy; the noarch job runs the whole flow.
+          cvcpkg install python312 numpy-cp312 --prefix fresh
+          for a in dist/mujoco-characters-*; do
+            case "$a" in
+              *.zip) unzip -q -o "$a" -d fresh ;;
+              *.tar.zst) tar --zstd -xf "$a" -C fresh ;;
+              *) tar -xf "$a" -C fresh ;;
+            esac
+          done
+          mkdir run && cd run
+          cmd //c "$(cygpath -w ../fresh/bin/mjchar.cmd)" --help
+          cmd //c "$(cygpath -w ../fresh/bin/mjchar.cmd)" testrig t.glb
+          cmd //c "$(cygpath -w ../fresh/bin/mjchar.cmd)" inspect t.glb | tail -4
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-windows
+          path: dist/mujoco-characters-*
+          if-no-files-found: error
+
+  publish:
+    name: publish to cvcpkg.org (cy-pca)
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
+    needs: [noarch, windows]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cvcpkg
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          cd "$HOME/.local/bin"
+          gh release download "$CVCPKG_RELEASE" --repo cy-pca/cvcpkg --pattern 'cvcpkg-linux-x86_64*'
+          sha256sum -c cvcpkg-linux-x86_64.sha256
+          mv cvcpkg-linux-x86_64 cvcpkg && chmod +x cvcpkg
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bundle-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish both bundles and the recipe under cy-pca
+        env:
+          # A cy-pca publisher token (member of the cy-pca organisation only).
+          CVCPKG_TOKEN: ${{ secrets.CVCPKG_PUBLISHER_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ -n "${CVCPKG_TOKEN:-}" ] || { echo "::error::the CVCPKG_PUBLISHER_TOKEN secret is not set"; exit 1; }
+          ls -l dist
+          for a in dist/mujoco-characters-*; do
+            echo "=== publish $(basename "$a")"
+            cvcpkg publish "$a" --server "$CVCPKG_SERVER_URL" --org cy-pca
+          done
+          # The server-side recipe (package page, dependency graph); an upsert.
+          cvcpkg recipe push mujoco-characters --recipes-dir recipes --no-default-recipes \
+            --server "$CVCPKG_SERVER_URL" --org cy-pca
+
+      - name: Install the published package and run it
+        run: |
+          cvcpkg install mujoco-characters --prefix published
+          mkdir run && cd run
+          ../published/bin/mjchar testrig t.glb
+          ../published/bin/mjchar skin t.glb -o g1
+          ../published/bin/mjchar demo g1/unitree_g1_t.xml | tee stats.json
+          grep -q '"fell": false' stats.json

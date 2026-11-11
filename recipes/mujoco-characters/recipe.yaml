@@ -1,0 +1,65 @@
+schema_version: 1
+recipe:
+  name: mujoco-characters
+  upstream_version: "0.1.0"
+  cvc_revision: 1
+  maintainer: "CyberPC Angel"
+  maintainer_email: "info@cvcpkg.org"
+  maintainer_url: "https://cyberpcangel.com"
+  homepage: https://github.com/cy-pca/mujoco-characters
+  license: MIT
+  tags: [python, robotics, simulation, mujoco, animation, tools]
+  description: >-
+    mjchar puts a rigged humanoid character (a Meshy.ai export or any skinned humanoid GLB) on a
+    MuJoCo robot as a deforming skin. `mjchar skin character.glb -o out/` maps the character's
+    bones to the Unitree G1 from mujoco-menagerie, poses the robot like the character, fits the
+    mesh to the robot's joints and writes a self-contained MJCF scene. `mjchar demo` runs the G1
+    through a scripted routine in the MuJoCo viewer or renders it to MP4 and GIF (MP4 needs
+    ffmpeg-cli). A Python 3.12 package with the bin/mjchar launcher.
+
+# The package is pure Python, so one noarch bundle serves Linux, macOS and the BSDs
+# (lib/python3.12/site-packages) and a second one serves Windows, whose CPython keeps
+# packages under Lib\site-packages.
+source:
+  # This repository: recipes/mujoco-characters/../.. is its root.
+  type: vendored
+  path: ../..
+
+patches: []
+
+depends:
+  build:
+    - name: python312
+    # PEP 517 backend from pyproject.toml; the wheel builds without isolation.
+    - name: setuptools-cp312
+  runtime:
+    - name: python312
+    - name: numpy-cp312
+    - name: mujoco-core-cp312
+    # The robot models: share/mujoco-menagerie/<model>/, found from the prefix.
+    - name: mujoco-menagerie
+    # Textures (JPEG and WebP to PNG) and `mjchar demo --render`.
+    - name: pillow-cp312
+    # mujoco.viewer: `mjchar demo --viewer`.
+    - name: glfw-cp312
+    - name: pyopengl-cp312
+  host_tools: []
+
+build:
+  build_type_independent: true
+  matrix:
+    - platform: any
+      script: build.sh
+    - platform: windows
+      script: build.ps1
+
+package:
+  files:
+    - { glob: "lib/python3.12/site-packages/mjchar/", platforms: [any] }
+    - { glob: "lib/python3.12/site-packages/mjchar-*.dist-info/", platforms: [any] }
+    - { glob: "bin/mjchar", platforms: [any] }
+    - { glob: "Lib/site-packages/mjchar/", platforms: [windows] }
+    - { glob: "Lib/site-packages/mjchar-*.dist-info/", platforms: [windows] }
+    - { glob: "bin/mjchar.cmd", platforms: [windows] }
+    - share/mujoco-characters/
+    - share/doc/mujoco-characters/

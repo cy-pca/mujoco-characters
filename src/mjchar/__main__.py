@@ -1,8 +1,9 @@
-"""Command line: ``python -m mjchar <command> ...``
+"""Command line: ``mjchar <command> ...`` (or ``python -m mjchar <command> ...``)
 
 Commands
   skin      GLB character -> MJCF robot scene with the character as a skin
   inspect   print a GLB's skeleton and how its bones map to canonical names
+  demo      run the G1 routine on a converted scene: viewer, render or headless
   testrig   write the synthetic Mixamo/meshyrig-named test character
 """
 
@@ -72,6 +73,21 @@ def _cmd_inspect(a) -> int:
     return 0
 
 
+def add_demo_arguments(ap: argparse.ArgumentParser) -> None:
+    """``mjchar demo`` options (here, so parsing the command line does not import MuJoCo)."""
+    ap.add_argument("xml", type=Path, help="scene written by `mjchar skin`")
+    ap.add_argument("--viewer", action="store_true", help="open the interactive viewer")
+    ap.add_argument("--show-robot", action="store_true", help="viewer: draw the robot under the skin")
+    ap.add_argument("--seconds", type=float, help="viewer: close after this many seconds")
+    ap.add_argument("--render", type=Path, help="write an MP4 (needs ffmpeg), a GIF, a contact sheet and a still to this folder")
+
+
+def _cmd_demo(a) -> int:
+    from . import demo
+
+    return demo.run(a)
+
+
 def _cmd_testrig(a) -> int:
     from .testrig import make_test_rig
 
@@ -81,7 +97,7 @@ def _cmd_testrig(a) -> int:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="python -m mjchar", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(prog="mjchar", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("skin", help="GLB character -> robot scene with the character as a skin")
@@ -97,6 +113,10 @@ def main(argv=None) -> int:
     i = sub.add_parser("inspect", help="print a GLB's skeleton and bone mapping")
     i.add_argument("glb")
     i.set_defaults(func=_cmd_inspect)
+
+    d = sub.add_parser("demo", help="G1 stand + scripted routine on a converted scene (viewer, render or headless)")
+    add_demo_arguments(d)
+    d.set_defaults(func=_cmd_demo)
 
     t = sub.add_parser("testrig", help="write the synthetic test character")
     t.add_argument("out")

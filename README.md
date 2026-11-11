@@ -18,32 +18,34 @@ not a Meshy export. No real Meshy file was available when this was written. See
 More evidence in `docs/evidence/`: an MP4 of the full 21 s routine, a contact
 sheet (robot | robot + skin | skin only at eight moments) and a close-up still.
 
-## Run it from a cvcpkg prefix
+## Install from cvcpkg
 
-Everything comes from cvcpkg packages: Python, numpy, MuJoCo, the Menagerie
-models, the viewer's GLFW/OpenGL bindings, Pillow for images and ffmpeg for MP4.
-
-```bash
-cvcpkg install python312 numpy-cp312 mujoco mujoco-core-cp312 mujoco-menagerie glfw glfw-cp312 pyopengl-cp312 pillow-cp312 ffmpeg-cli --prefix ./deps
-```
-
-On Windows, `mujoco-core-cp312` (`import mujoco`) is not in the catalog yet:
-its populate is still running (cy-pca/cvcpkg#606). Until it is published, use
-a prefix that already has it, or build the recipe locally. This repo was
-tested with one built from the cy-pca/cvcpkg#595 recipe. Linux and macOS
-builds are published.
-
-Then, from the repo root (Git Bash shown; in PowerShell use
-`$env:PYTHONPATH = "src"` and `deps\python.exe`):
+The tool is the `mujoco-characters` package in the `cy-pca` organisation on
+[cvcpkg.org](https://cvcpkg.org). Installing it brings everything it needs from
+cvcpkg: Python 3.12, numpy, MuJoCo, the Menagerie robot models, Pillow, and the
+viewer's GLFW and OpenGL bindings. Add `ffmpeg-cli` if you want
+`mjchar demo --render` to write an MP4 as well as the GIF.
 
 ```bash
-export PYTHONPATH=src
-deps/python.exe -m mjchar testrig out/testrig.glb                  # or use your Meshy GLB
-deps/python.exe -m mjchar inspect out/testrig.glb                  # skeleton and bone mapping
-deps/python.exe -m mjchar skin out/testrig.glb -o out/g1_testrig   # writes out/g1_testrig/unitree_g1_testrig.xml
-deps/python.exe examples/demo_g1.py out/g1_testrig/unitree_g1_testrig.xml --viewer
-deps/python.exe examples/demo_g1.py out/g1_testrig/unitree_g1_testrig.xml --render out/evidence
+cvcpkg install mujoco-characters ffmpeg-cli --prefix ./deps
 ```
+
+On Windows, MuJoCo's Python bindings (`mujoco-core-cp312`) are not published
+for Windows yet, so the install stops there until they are. Linux and macOS
+work now.
+
+Then (Linux and macOS shown; on Windows run `deps\bin\mjchar.cmd`):
+
+```bash
+deps/bin/mjchar testrig out/testrig.glb                  # or use your Meshy GLB
+deps/bin/mjchar inspect out/testrig.glb                  # skeleton and bone mapping
+deps/bin/mjchar skin out/testrig.glb -o out/g1_testrig   # writes out/g1_testrig/unitree_g1_testrig.xml
+deps/bin/mjchar demo out/g1_testrig/unitree_g1_testrig.xml --viewer
+deps/bin/mjchar demo out/g1_testrig/unitree_g1_testrig.xml --render out/evidence
+```
+
+`mjchar demo` without `--viewer` or `--render` runs the routine headless and
+prints whether the robot stayed up.
 
 `mjchar skin` finds Menagerie in the running interpreter's prefix
 (`share/mujoco-menagerie`), in `$CVCPKG_PREFIX`, or at `--menagerie` /
@@ -55,10 +57,39 @@ sidecar with the conversion report and the reference pose.
 In the viewer the robot's visual geoms (group 2) start hidden. Press `2` to
 show the robot under the skin. `--show-robot` starts with it visible.
 
-Tests: `deps/python.exe -m unittest discover -s tests` (11 tests, about 4 s).
-They check the bone aliases, that the centimetre and metre rigs load the same,
-and that MuJoCo's own skinning (`MjvScene.skinvert`) reproduces the bind mesh at
-the reference pose and matches the reference implementation at the stand pose.
+## Develop and package
+
+To work on the code, install the dependencies instead of the package and run
+from the checkout:
+
+```bash
+cvcpkg install python312 numpy-cp312 mujoco-core-cp312 mujoco-menagerie pillow-cp312 glfw-cp312 pyopengl-cp312 ffmpeg-cli --prefix ./deps
+export PYTHONPATH=src
+deps/bin/python3.12 -m mjchar --help          # Windows: deps\python.exe -m mjchar --help
+deps/bin/python3.12 -m unittest discover -s tests
+```
+
+The 11 tests take a few seconds. They check the bone aliases, that the
+centimetre and metre rigs load the same, and that MuJoCo's own skinning
+(`MjvScene.skinvert`) reproduces the bind mesh at the reference pose and matches
+the reference implementation at the stand pose.
+
+The cvcpkg recipe is `recipes/mujoco-characters/`. It builds the wheel with the
+prefix's Python and installs it with a relocatable `bin/mjchar` launcher. There
+are two bundles: a noarch one for Linux, macOS and the BSDs, and one for
+Windows, whose Python keeps packages under `Lib\site-packages`. To build one
+locally:
+
+```bash
+cvcpkg install python312 setuptools-cp312 --prefix ./build-deps     # add powershell on Windows
+cvcpkg pack mujoco-characters --local --recipes-dir recipes --platform any --prefix ./build-deps --output-dir dist
+```
+
+The `package` workflow runs the tests, packs both bundles and installs each one
+into a fresh prefix on every pull request. Running it by hand on `main` with
+`publish` set publishes both bundles to the `cy-pca` organisation. Bump
+`cvc_revision` in the recipe (or `version` in `pyproject.toml`,
+`src/mjchar/__init__.py` and the recipe) before publishing again.
 
 ## How it works
 
@@ -141,7 +172,7 @@ Anything else: `--bone-map map.json` with `{"source bone": "CanonicalName"}`.
   The squat, wave and twist are steady. The march is quasi-static: the feet
   lift only 2-3 cm and the feet drift up to 7 cm over the eight steps.
   A trained G1 policy (Playground or mjlab) drops in by replacing
-  `Controller.__call__` and keeps the same skin.
+  `Controller.__call__` in `src/mjchar/demo.py` and keeps the same skin.
 
 ## Using a real Meshy export
 
@@ -160,8 +191,8 @@ character:
    clavicle names, so expect to add aliases or a `--bone-map`.
 3. Run `python -m mjchar skin character.glb -o out/meshy`, then the demo.
 
-**Licensing of Meshy assets: check Joe's plan before using a character
-commercially.** As of 2026-11, Meshy's pricing docs say free-plan outputs are
+**Licensing of Meshy assets: check which Meshy plan a character was generated
+under before using it commercially.** As of 2026-11, Meshy's pricing docs say free-plan outputs are
 CC BY 4.0: commercial use is allowed with attribution, and Meshy suggests a
 credit line in the readme or product page. Pro and higher plans give a private
 licence with full commercial use. Models generated while on a paid plan keep
@@ -189,6 +220,15 @@ src/mjchar/robots.py    robot profiles (G1), Menagerie discovery
 src/mjchar/retarget.py  bind pose, robot IK, re-proportioning, skin binding
 src/mjchar/mjcf.py      MjSpec assembly and output folder
 src/mjchar/testrig.py   synthetic Mixamo/meshyrig-named test character
-examples/demo_g1.py     PD stand + scripted routine; viewer, MP4/GIF/contact sheet
+src/mjchar/demo.py      `mjchar demo`: PD stand + scripted routine; viewer, MP4/GIF/contact sheet
+examples/demo_g1.py     the same demo as a script
 tests/test_mjchar.py    unit and integration tests
+recipes/                cvcpkg recipe (noarch and Windows bundles)
+.github/workflows/      tests, packing, publishing to cvcpkg.org; llm-gate
 ```
+
+## Licence
+
+MIT (`LICENSE`). Scenes written by `mjchar skin` include the Unitree G1 model
+and meshes from MuJoCo Menagerie, which carry their own BSD-3-Clause licence;
+`mjchar skin` copies it into the output folder.
